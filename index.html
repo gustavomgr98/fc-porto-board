@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>FC Porto Board</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -36,7 +36,13 @@
     --panel-shadow: rgba(0, 0, 0, 0.5);
     box-sizing: border-box;
   }
-  *{box-sizing:inherit;}
+  *{
+    box-sizing:inherit;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
   html,body{
     height:100%;
     margin:0;
@@ -46,6 +52,8 @@
     font-family: 'Work Sans', sans-serif;
     color: var(--chalk);
     overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
   }
   .app{
     height:100%;
@@ -54,6 +62,10 @@
     flex-direction:column;
     padding: 14px 14px 10px;
     gap:10px;
+    touch-action: none;
+  }
+  button, input[type=range]{
+    touch-action: manipulation;
   }
 
   header{
@@ -68,6 +80,9 @@
     width: auto;
     flex-shrink:0;
     filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none;
   }
   header .brand-block{ text-align:left; min-width:0; }
   header .brand{
@@ -163,6 +178,12 @@
       radial-gradient(ellipse at 90% 5%, rgba(255,255,255,0.04), transparent 40%);
     pointer-events:none;
   }
+  .board-zoom-layer{
+    position:absolute;
+    inset:0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
   canvas{
     position:absolute;
     top:0; left:0;
@@ -241,8 +262,10 @@
 
   <div class="board-wrap">
     <div class="board-frame" id="boardFrame">
-      <canvas id="fieldCanvas"></canvas>
-      <canvas id="drawCanvas"></canvas>
+      <div class="board-zoom-layer" id="boardZoomLayer">
+        <canvas id="fieldCanvas"></canvas>
+        <canvas id="drawCanvas"></canvas>
+      </div>
     </div>
   </div>
 
@@ -259,6 +282,7 @@
     </div>
     <button class="icon-btn eraser" id="eraserBtn">Borracha</button>
     <button class="icon-btn" id="undoBtn">Desfazer</button>
+    <button class="icon-btn" id="resetZoomBtn">Repor zoom</button>
     <button class="icon-btn danger" id="clearBtn">Limpar</button>
     <button class="icon-btn" id="saveBtn">Guardar imagem</button>
   </div>
@@ -267,6 +291,7 @@
 <script>
 (function(){
   const boardFrame = document.getElementById('boardFrame');
+  const boardZoomLayer = document.getElementById('boardZoomLayer');
   const fieldCanvas = document.getElementById('fieldCanvas');
   const drawCanvas = document.getElementById('drawCanvas');
   const fctx = fieldCanvas.getContext('2d');
@@ -277,8 +302,31 @@
   const brushSize = document.getElementById('brushSize');
   const eraserBtn = document.getElementById('eraserBtn');
   const undoBtn = document.getElementById('undoBtn');
+  const resetZoomBtn = document.getElementById('resetZoomBtn');
   const clearBtn = document.getElementById('clearBtn');
   const saveBtn = document.getElementById('saveBtn');
+
+  // ---------- Zoom & pan (two-finger pinch on the board) ----------
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 4;
+  const PALM_SIZE_THRESHOLD = 50; // CSS px contact width/height above this is treated as a resting palm
+  let zoomScale = 1, panX = 0, panY = 0;
+  let isPinching = false;
+  let pinchPrev = null; // {dist, mid}
+  const touchPoints = new Map(); // pointerId -> {x,y} relative to board-frame
+  let activePenId = null;        // pointerId of an actively-down Apple Pencil, or null
+
+  function applyTransform(){
+    boardZoomLayer.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoomScale + ')';
+  }
+  function resetZoom(){
+    zoomScale = 1; panX = 0; panY = 0;
+    applyTransform();
+  }
+  function boardRelative(evt){
+    const r = boardFrame.getBoundingClientRect();
+    return { x: evt.clientX - r.left, y: evt.clientY - r.top };
+  }
 
   const ASPECT = { full: 113/76, half: 76/60.5, box: 48.32/24.85 };
   let currentField = 'full';
@@ -519,10 +567,11 @@
   }
 
   let activeStroke = null;
+  let activeStrokeOwnerId = null;
 
   function getPos(evt){
     const rect = drawCanvas.getBoundingClientRect();
-    return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+    return { x: (evt.clientX - rect.left) / zoomScale, y: (evt.clientY - rect.top) / zoomScale };
   }
 
   function pressureFor(evt){
@@ -532,7 +581,42 @@
 
   drawCanvas.addEventListener('pointerdown', (evt)=>{
     evt.preventDefault();
+
+    // Palm rejection: while the Pencil is actively down, ignore any finger
+    // touch outright (it's almost certainly a resting palm). Also ignore any
+    // touch whose contact patch is much bigger than a fingertip.
+    if(evt.pointerType === 'touch'){
+      if(activePenId !== null) return;
+      const size = Math.max(evt.width||0, evt.height||0);
+      if(size > PALM_SIZE_THRESHOLD) return;
+    }
+
     drawCanvas.setPointerCapture(evt.pointerId);
+
+    if(evt.pointerType === 'pen'){
+      activePenId = evt.pointerId;
+    }
+
+    if(evt.pointerType === 'touch'){
+      touchPoints.set(evt.pointerId, boardRelative(evt));
+      if(touchPoints.size >= 2){
+        // A second finger arrived: this is a pinch/pan gesture, not a draw.
+        // Discard whatever single-finger stroke was just starting.
+        if(activeStroke && touchPoints.has(activeStrokeOwnerId)){
+          const idx = strokes[currentField].lastIndexOf(activeStroke);
+          if(idx !== -1) strokes[currentField].splice(idx, 1);
+          activeStroke = null;
+          activeStrokeOwnerId = null;
+          redrawStrokes();
+        }
+        isPinching = true;
+        pinchPrev = null;
+        return;
+      }
+    }
+
+    if(isPinching) return;
+
     const pos = getPos(evt);
     activeStroke = {
       color: currentColor,
@@ -540,25 +624,67 @@
       erase: erasing,
       points: [{x:pos.x, y:pos.y, p:pressureFor(evt)}]
     };
+    activeStrokeOwnerId = evt.pointerId;
     strokes[currentField].push(activeStroke);
   });
 
   drawCanvas.addEventListener('pointermove', (evt)=>{
-    if(!activeStroke) return;
     evt.preventDefault();
+
+    if(evt.pointerType === 'touch' && touchPoints.has(evt.pointerId)){
+      touchPoints.set(evt.pointerId, boardRelative(evt));
+    }
+
+    if(isPinching && touchPoints.size >= 2){
+      const pts = Array.from(touchPoints.values());
+      const p1 = pts[0], p2 = pts[1];
+      const dist = Math.hypot(p2.x-p1.x, p2.y-p1.y);
+      const mid = { x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2 };
+      if(pinchPrev){
+        // two-finger drag pans...
+        panX += (mid.x - pinchPrev.mid.x);
+        panY += (mid.y - pinchPrev.mid.y);
+        // ...and pinching zooms, anchored at the current midpoint.
+        const rawFactor = dist / pinchPrev.dist;
+        const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomScale * rawFactor));
+        const factor = newScale / zoomScale;
+        panX = mid.x - (mid.x - panX) * factor;
+        panY = mid.y - (mid.y - panY) * factor;
+        zoomScale = newScale;
+        applyTransform();
+      }
+      pinchPrev = { dist, mid };
+      return;
+    }
+
+    if(!activeStroke || evt.pointerId !== activeStrokeOwnerId) return;
     const pos = getPos(evt);
     activeStroke.points.push({x:pos.x, y:pos.y, p:pressureFor(evt)});
     paintStroke({...activeStroke, points: activeStroke.points.slice(-2)});
   });
 
-  function endStroke(evt){
-    if(!activeStroke) return;
-    activeStroke = null;
-    saveStrokes();
+  function endPointer(evt){
+    if(evt.pointerType === 'pen' && activePenId === evt.pointerId){
+      activePenId = null;
+    }
+    if(evt.pointerType === 'touch' && touchPoints.has(evt.pointerId)){
+      touchPoints.delete(evt.pointerId);
+      if(touchPoints.size < 2){
+        isPinching = false;
+        pinchPrev = null;
+      }
+    }
+    if(activeStrokeOwnerId === evt.pointerId){
+      activeStroke = null;
+      activeStrokeOwnerId = null;
+      saveStrokes();
+    }
   }
-  drawCanvas.addEventListener('pointerup', endStroke);
-  drawCanvas.addEventListener('pointercancel', endStroke);
-  drawCanvas.addEventListener('pointerleave', endStroke);
+  drawCanvas.addEventListener('pointerup', endPointer);
+  drawCanvas.addEventListener('pointercancel', endPointer);
+  drawCanvas.addEventListener('pointerleave', endPointer);
+
+  resetZoomBtn.addEventListener('click', resetZoom);
 
   // ---------- Controls ----------
   tabs.forEach(btn=>{
@@ -566,6 +692,7 @@
       tabs.forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       currentField = btn.dataset.field;
+      resetZoom();
       fitFrame();
     });
   });
@@ -614,6 +741,16 @@
 
   window.addEventListener('resize', fitFrame);
   fitFrame();
+
+  // App-like feel: no text selection, no callout/loupe on long-press, no
+  // right-click menu, no dragging images, and no native page pinch-zoom
+  // (the board has its own pinch-zoom implemented above).
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('selectstart', e => e.preventDefault());
+  document.addEventListener('dragstart', e => e.preventDefault());
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  document.addEventListener('gesturechange', e => e.preventDefault());
+  document.addEventListener('gestureend', e => e.preventDefault());
 
   // Register a minimal service worker so Chrome/Android recognise this
   // page as an installable PWA (required alongside the manifest).
