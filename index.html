@@ -667,14 +667,11 @@
   document.addEventListener('gesturechange', e => e.preventDefault());
   document.addEventListener('gestureend', e => e.preventDefault());
 
-  // Register a minimal service worker so Chrome/Android recognise this
-  // page as an installable PWA (required alongside the manifest).
+  // Register the service worker that caches the whole app for offline use
+  // (see sw.js) — this is also what makes Chrome/Android offer to install
+  // it as a PWA.
   if ('serviceWorker' in navigator) {
-    try {
-      const swCode = "self.addEventListener('fetch', function(e){});";
-      const swBlob = new Blob([swCode], {type: 'text/javascript'});
-      navigator.serviceWorker.register(URL.createObjectURL(swBlob));
-    } catch(e) { /* ignore if blocked */ }
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* ignore if blocked */ });
   }
 })();
 </script>
