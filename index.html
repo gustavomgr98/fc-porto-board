@@ -212,14 +212,10 @@
       radial-gradient(ellipse at 90% 5%, rgba(255,255,255,0.04), transparent 40%);
     pointer-events:none;
   }
-  .board-frame canvas{
+  canvas{
     position:absolute;
     top:0; left:0;
     width:100%; height:100%;
-    display:block;
-  }
-  .token-btn canvas{
-    width: 26px; height: 26px;
     display:block;
   }
   #fieldCanvas{ pointer-events:none; }
@@ -272,43 +268,6 @@
     border-color: var(--accent);
   }
 
-  .tokens-bar{
-    flex-shrink:0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    gap: 8px;
-    flex-wrap: wrap;
-    background: var(--shell-panel);
-    border: 1px solid rgba(242,238,226,0.08);
-    border-radius: 10px;
-    padding: 6px 10px;
-    box-shadow: 0 2px 8px var(--panel-shadow);
-  }
-  .tokens-bar .tokens-label{
-    font-family:'Oswald', sans-serif;
-    font-weight: 600;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-  .token-btn{
-    width: 40px; height: 40px;
-    display:flex; align-items:center; justify-content:center;
-    border-radius: 8px;
-    border: 1px solid rgba(242,238,226,0.14);
-    background: var(--shell-panel-2);
-    cursor: pointer;
-    padding: 0;
-  }
-  .token-btn canvas{ pointer-events:none; }
-  .token-btn.active{
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(205,164,55,0.35);
-  }
 </style>
 </head>
 <body>
@@ -338,16 +297,6 @@
       </div>
     </div>
     <button id="resetZoomBtn" class="reset-zoom" hidden>1:1</button>
-  </div>
-
-  <div class="tokens-bar" id="tokensBar">
-    <span class="tokens-label">Elementos</span>
-    <button class="token-btn" data-token="ball" title="Bola"><canvas width="26" height="26"></canvas></button>
-    <button class="token-btn" data-token="cone" title="Sinalizador"><canvas width="26" height="26"></canvas></button>
-    <button class="token-btn" data-token="goal1" title="Baliza 1"><canvas width="26" height="26"></canvas></button>
-    <button class="token-btn" data-token="goal3" title="Baliza 3"><canvas width="26" height="26"></canvas></button>
-    <button class="token-btn" data-token="goal5" title="Baliza 5"><canvas width="26" height="26"></canvas></button>
-    <button class="token-btn" data-token="dummy" title="Boneco"><canvas width="26" height="26"></canvas></button>
   </div>
 
   <div class="toolbar">
@@ -385,7 +334,6 @@
   const undoBtn = document.getElementById('undoBtn');
   const clearBtn = document.getElementById('clearBtn');
   const saveBtn = document.getElementById('saveBtn');
-  const tokenButtons = document.querySelectorAll('.token-btn');
 
   // Palm rejection: while the Pencil is down, ignore concurrent finger
   // touches outright; also ignore touches with an unusually large contact
@@ -415,27 +363,7 @@
     try{ localStorage.setItem('quadro-tatico-strokes', JSON.stringify(strokes)); }catch(e){}
   }
   loadStrokes();
-
-  // tokens[field] = array of placed elements; each = {type, x, y, seq}
-  let tokens = { full: [], half: [], box: [] };
-  let actionSeq = 0;
-
-  function loadTokens(){
-    try{
-      const raw = localStorage.getItem('quadro-tatico-tokens');
-      if(raw){
-        const parsed = JSON.parse(raw);
-        if(parsed && parsed.full && parsed.half && parsed.box){ tokens = parsed; }
-      }
-    }catch(e){ /* ignore, start fresh */ }
-    // keep actionSeq ahead of anything loaded, so a fresh undo doesn't clash
-    Object.values(tokens).forEach(arr => arr.forEach(t => { if(t.seq > actionSeq) actionSeq = t.seq; }));
-    Object.values(strokes).forEach(arr => arr.forEach(s => { if(s.seq > actionSeq) actionSeq = s.seq; }));
-  }
-  function saveTokens(){
-    try{ localStorage.setItem('quadro-tatico-tokens', JSON.stringify(tokens)); }catch(e){}
-  }
-  loadTokens();
+  try{ localStorage.removeItem('quadro-tatico-tokens'); }catch(e){} // cleanup from a removed feature
 
   // ---------- Pinch-to-zoom / pan ----------
   // Zoom is a pure CSS transform on .board-frame inside the fixed-size,
@@ -701,133 +629,6 @@
     const w = drawCanvas.clientWidth, h = drawCanvas.clientHeight;
     dctx.clearRect(0,0,w,h);
     strokes[currentField].forEach(s => paintStroke(s));
-    tokens[currentField].forEach(t => paintToken(t));
-  }
-
-  // ---------- Elementos (drag-and-drop training props) ----------
-  // Small vector icons drawn straight onto the board's own canvas (rather
-  // than emoji glyphs) so they render identically on every device, scale
-  // crisply with pinch-zoom, and match the pitch's ink/chalk look.
-  function tokenSize(){
-    return boardFrame.clientWidth * 0.065;
-  }
-
-  function drawBallIcon(ctx, size){
-    const r = size*0.42;
-    ctx.lineWidth = Math.max(1, size*0.035);
-    ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2);
-    ctx.fillStyle = '#f6f3e8';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(20,20,20,0.75)';
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(20,20,20,0.8)';
-    for(let i=0;i<5;i++){
-      const a = -Math.PI/2 + i*(Math.PI*2/5);
-      ctx.beginPath();
-      ctx.arc(Math.cos(a)*r*0.46, Math.sin(a)*r*0.46, r*0.17, 0, Math.PI*2);
-      ctx.fill();
-    }
-    ctx.beginPath(); ctx.arc(0,0,r*0.18,0,Math.PI*2); ctx.fill();
-  }
-
-  function drawConeIcon(ctx, size){
-    const h = size*0.85, wBase = size*0.42;
-    ctx.beginPath();
-    ctx.moveTo(0,-h*0.55);
-    ctx.lineTo(wBase*0.5, h*0.45);
-    ctx.lineTo(-wBase*0.5, h*0.45);
-    ctx.closePath();
-    ctx.fillStyle = '#e8863a';
-    ctx.fill();
-    ctx.lineWidth = Math.max(1, size*0.03);
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-wBase*0.32, h*0.06);
-    ctx.lineTo(wBase*0.32, h*0.06);
-    ctx.lineTo(wBase*0.22, h*0.26);
-    ctx.lineTo(-wBase*0.22, h*0.26);
-    ctx.closePath();
-    ctx.fillStyle = '#f6f3e8';
-    ctx.fill();
-  }
-
-  function drawGoalIcon(ctx, size, label){
-    const w = size*0.95, h = size*0.6;
-    ctx.lineWidth = Math.max(1.5, size*0.07);
-    ctx.strokeStyle = '#f6f3e8';
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-w/2, h/2);
-    ctx.lineTo(-w/2, -h/2);
-    ctx.lineTo(w/2, -h/2);
-    ctx.lineTo(w/2, h/2);
-    ctx.stroke();
-    ctx.lineWidth = Math.max(0.6, size*0.02);
-    ctx.strokeStyle = 'rgba(244,241,230,0.45)';
-    for(let i=1;i<4;i++){
-      const x = -w/2 + (w*i/4);
-      ctx.beginPath(); ctx.moveTo(x,-h/2); ctx.lineTo(x,h/2); ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.arc(0, h/2+size*0.18, size*0.17, 0, Math.PI*2);
-    ctx.fillStyle = '#cda437';
-    ctx.fill();
-    ctx.fillStyle = '#0a1830';
-    ctx.font = `700 ${Math.round(size*0.22)}px 'Oswald', sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, 0, h/2+size*0.19);
-  }
-
-  function drawDummyIcon(ctx, size){
-    ctx.fillStyle = '#d6564a';
-    ctx.beginPath(); ctx.arc(0, -size*0.34, size*0.18, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-size*0.22, size*0.4);
-    ctx.lineTo(-size*0.3, -size*0.12);
-    ctx.lineTo(size*0.3, -size*0.12);
-    ctx.lineTo(size*0.22, size*0.4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.lineWidth = Math.max(1, size*0.03);
-    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-    ctx.stroke();
-  }
-
-  function paintTokenIcon(ctx, type, size){
-    switch(type){
-      case 'ball': drawBallIcon(ctx, size); break;
-      case 'cone': drawConeIcon(ctx, size); break;
-      case 'goal1': drawGoalIcon(ctx, size, '1'); break;
-      case 'goal3': drawGoalIcon(ctx, size, '3'); break;
-      case 'goal5': drawGoalIcon(ctx, size, '5'); break;
-      case 'dummy': drawDummyIcon(ctx, size); break;
-    }
-  }
-
-  function paintToken(t){
-    dctx.save();
-    dctx.translate(t.x, t.y);
-    paintTokenIcon(dctx, t.type, tokenSize());
-    dctx.restore();
-  }
-
-  function findTokenAt(pos){
-    const arr = tokens[currentField];
-    const hitR = tokenSize()*0.75;
-    for(let i=arr.length-1; i>=0; i--){
-      const t = arr[i];
-      if(Math.hypot(pos.x-t.x, pos.y-t.y) <= hitR) return t;
-    }
-    return null;
-  }
-
-  function removeToken(t){
-    const arr = tokens[currentField];
-    const idx = arr.indexOf(t);
-    if(idx !== -1) arr.splice(idx,1);
-    redrawStrokes();
-    saveTokens();
   }
 
   function paintStroke(stroke){
@@ -858,8 +659,6 @@
   let activeStroke = null;
   let activeStrokeOwnerId = null;
   const activeTouches = new Map(); // touch pointerId -> last {x,y} in viewport coords
-  let draggingToken = null;
-  let draggingPointerId = null;
 
   function getPos(evt){
     const rect = drawCanvas.getBoundingClientRect();
@@ -895,8 +694,6 @@
       // started and hand off to the pinch handler instead.
       if(activeTouches.size >= 2){
         cancelActiveStroke();
-        draggingToken = null;
-        draggingPointerId = null;
         if(activeTouches.size === 2) beginPinch();
         return;
       }
@@ -909,31 +706,6 @@
       if(size > PALM_SIZE_THRESHOLD) return;
     }
 
-    // Elementos mode: a tap places/drags a training prop instead of drawing.
-    if(tokenTool){
-      const pos = getPos(evt);
-      const hit = findTokenAt(pos);
-      if(hit){
-        const now = Date.now();
-        if(hit.lastTap && now - hit.lastTap < 350){
-          removeToken(hit);
-          return;
-        }
-        hit.lastTap = now;
-        draggingToken = hit;
-      } else {
-        // No lastTap on creation: the very next tap shouldn't be mistaken
-        // for the second half of a double-tap-to-delete on a brand-new prop.
-        const t = { type: tokenTool, x: pos.x, y: pos.y, seq: ++actionSeq };
-        tokens[currentField].push(t);
-        draggingToken = t;
-        redrawStrokes();
-      }
-      draggingPointerId = evt.pointerId;
-      try{ drawCanvas.setPointerCapture(evt.pointerId); }catch(e){ /* ignore */ }
-      return;
-    }
-
     try{ drawCanvas.setPointerCapture(evt.pointerId); }catch(e){ /* ignore */ }
     if(evt.pointerType === 'pen'){
       activePenId = evt.pointerId;
@@ -944,7 +716,6 @@
       color: currentColor,
       size: Number(brushSize.value),
       erase: erasing,
-      seq: ++actionSeq,
       points: [{x:pos.x, y:pos.y, p:pressureFor(evt)}]
     };
     activeStrokeOwnerId = evt.pointerId;
@@ -960,14 +731,6 @@
         return;
       }
     }
-    if(draggingToken && evt.pointerId === draggingPointerId){
-      evt.preventDefault();
-      const pos = getPos(evt);
-      draggingToken.x = pos.x;
-      draggingToken.y = pos.y;
-      redrawStrokes();
-      return;
-    }
     if(!activeStroke || evt.pointerId !== activeStrokeOwnerId) return;
     evt.preventDefault();
     const pos = getPos(evt);
@@ -982,11 +745,6 @@
     if(evt.pointerType === 'touch' && activeTouches.has(evt.pointerId)){
       activeTouches.delete(evt.pointerId);
       if(pinch && activeTouches.size < 2) endPinch();
-    }
-    if(draggingToken && evt.pointerId === draggingPointerId){
-      draggingToken = null;
-      draggingPointerId = null;
-      saveTokens();
     }
     if(activeStrokeOwnerId === evt.pointerId){
       activeStroke = null;
@@ -1013,11 +771,6 @@
     });
   });
 
-  function clearTokenTool(){
-    tokenTool = null;
-    tokenButtons.forEach(b=>b.classList.remove('active'));
-  }
-
   swatches.forEach(sw=>{
     sw.addEventListener('click', ()=>{
       swatches.forEach(s=>s.classList.remove('active'));
@@ -1025,54 +778,24 @@
       currentColor = sw.dataset.color;
       erasing = false;
       eraserBtn.classList.remove('active');
-      clearTokenTool();
     });
   });
 
   eraserBtn.addEventListener('click', ()=>{
     erasing = !erasing;
     eraserBtn.classList.toggle('active', erasing);
-    clearTokenTool();
   });
 
   undoBtn.addEventListener('click', ()=>{
-    const arrS = strokes[currentField], arrT = tokens[currentField];
-    const lastS = arrS[arrS.length-1], lastT = arrT[arrT.length-1];
-    if(!lastS && !lastT) return;
-    if(lastT && (!lastS || lastT.seq > lastS.seq)){ arrT.pop(); }
-    else { arrS.pop(); }
+    strokes[currentField].pop();
     redrawStrokes();
     saveStrokes();
-    saveTokens();
   });
 
   clearBtn.addEventListener('click', ()=>{
     strokes[currentField] = [];
-    tokens[currentField] = [];
     redrawStrokes();
     saveStrokes();
-    saveTokens();
-  });
-
-  // ---------- Elementos toolbar (ball, cones, small goals, wall dummy) ----------
-  let tokenTool = null;
-
-  tokenButtons.forEach(btn=>{
-    // Draw the same vector icon used on the board into the button itself.
-    const c = btn.querySelector('canvas');
-    const ictx = c.getContext('2d');
-    ictx.translate(c.width/2, c.height/2);
-    paintTokenIcon(ictx, btn.dataset.token, 20);
-
-    btn.addEventListener('click', ()=>{
-      const type = btn.dataset.token;
-      if(tokenTool === type){
-        clearTokenTool();
-      } else {
-        tokenTool = type;
-        tokenButtons.forEach(b=>b.classList.toggle('active', b===btn));
-      }
-    });
   });
 
   saveBtn.addEventListener('click', ()=>{
