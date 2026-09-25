@@ -165,17 +165,44 @@
     justify-content:center;
     position:relative;
   }
-  .board-frame{
+  .board-viewport{
     position:relative;
     height:100%;
     max-width:100%;
-    background: var(--board);
     border-radius: 10px;
-    box-shadow: 0 10px 28px var(--panel-shadow), inset 0 0 0 3px var(--frame), inset 0 0 0 5px rgba(242,238,226,0.06);
-    border: 1px solid var(--frame);
+    box-shadow: 0 10px 28px var(--panel-shadow);
     overflow:hidden;
     touch-action: none;
   }
+  .board-frame{
+    position:absolute;
+    top:0; left:0;
+    background: var(--board);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 3px var(--frame), inset 0 0 0 5px rgba(242,238,226,0.06);
+    border: 1px solid var(--frame);
+    overflow:hidden;
+    touch-action: none;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .reset-zoom{
+    position:absolute;
+    bottom: 10px;
+    right: 10px;
+    z-index: 5;
+    font-family:'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(242,238,226,0.2);
+    background: rgba(10,24,48,0.82);
+    color: var(--gold-soft);
+    cursor: pointer;
+  }
+  .reset-zoom[hidden]{ display:none; }
   .board-frame::before{
     content:"";
     position:absolute; inset:0;
@@ -262,10 +289,13 @@
   </nav>
 
   <div class="board-wrap">
-    <div class="board-frame" id="boardFrame">
-      <canvas id="fieldCanvas"></canvas>
-      <canvas id="drawCanvas"></canvas>
+    <div class="board-viewport" id="boardViewport">
+      <div class="board-frame" id="boardFrame">
+        <canvas id="fieldCanvas"></canvas>
+        <canvas id="drawCanvas"></canvas>
+      </div>
     </div>
+    <button id="resetZoomBtn" class="reset-zoom" hidden>1:1</button>
   </div>
 
   <div class="toolbar">
@@ -288,7 +318,9 @@
 
 <script>
 (function(){
+  const boardViewport = document.getElementById('boardViewport');
   const boardFrame = document.getElementById('boardFrame');
+  const resetZoomBtn = document.getElementById('resetZoomBtn');
   const fieldCanvas = document.getElementById('fieldCanvas');
   const drawCanvas = document.getElementById('drawCanvas');
   const fctx = fieldCanvas.getContext('2d');
@@ -331,20 +363,93 @@
   }
   loadStrokes();
 
+  // ---------- Pinch-to-zoom / pan ----------
+  // Zoom is a pure CSS transform on .board-frame inside the fixed-size,
+  // overflow-hidden .board-viewport. The drawing/geometry code below always
+  // works in the frame's own unscaled logical size (boardFrame.clientWidth /
+  // clientHeight, which CSS transforms never change) — only the *resolution*
+  // of the canvas backing store and the on-screen size are affected by zoom,
+  // so a stroke drawn while zoomed in lands at the correct real position.
+  const MIN_ZOOM = 1, MAX_ZOOM = 3;
+  let currentZoom = 1, panX = 0, panY = 0;
+  let pinch = null; // {dist0, mid0, zoomAtStart, panAtStart}
+
+  function clampPan(zoom, px, py){
+    const w = boardFrame.clientWidth, h = boardFrame.clientHeight;
+    return {
+      x: Math.min(0, Math.max(w*(1-zoom), px)),
+      y: Math.min(0, Math.max(h*(1-zoom), py))
+    };
+  }
+
+  function applyTransform(){
+    boardFrame.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+    resetZoomBtn.hidden = currentZoom <= 1.02;
+  }
+
+  function resetZoomState(){
+    currentZoom = 1; panX = 0; panY = 0;
+    pinch = null;
+    applyTransform();
+  }
+
+  function viewportPoint(clientX, clientY){
+    const r = boardViewport.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  function touchDistance(a,b){ return Math.max(Math.hypot(a.x-b.x, a.y-b.y), 1); }
+  function touchMidpoint(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+
+  function beginPinch(){
+    const pts = Array.from(activeTouches.values());
+    if(pts.length < 2) return;
+    pinch = {
+      dist0: touchDistance(pts[0], pts[1]),
+      mid0: touchMidpoint(pts[0], pts[1]),
+      zoomAtStart: currentZoom,
+      panAtStart: { x: panX, y: panY }
+    };
+  }
+
+  function updatePinch(){
+    if(!pinch) return;
+    const pts = Array.from(activeTouches.values());
+    if(pts.length < 2) return;
+    const dist = touchDistance(pts[0], pts[1]);
+    const mid = touchMidpoint(pts[0], pts[1]);
+    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinch.zoomAtStart * (dist / pinch.dist0)));
+    // Keep the content point that was under the gesture's starting midpoint
+    // anchored under the *current* midpoint, so the pinch zooms where the
+    // fingers actually are and pans along with them.
+    const contentX = (pinch.mid0.x - pinch.panAtStart.x) / pinch.zoomAtStart;
+    const contentY = (pinch.mid0.y - pinch.panAtStart.y) / pinch.zoomAtStart;
+    const clamped = clampPan(newZoom, mid.x - contentX*newZoom, mid.y - contentY*newZoom);
+    currentZoom = newZoom;
+    panX = clamped.x;
+    panY = clamped.y;
+    applyTransform();
+  }
+
+  function endPinch(){
+    pinch = null;
+    sizeCanvases(); // snap the canvas resolution to match the settled zoom, crisp
+  }
+
   function sizeCanvases(){
-    const rect = boardFrame.getBoundingClientRect();
-    const w = rect.width, h = rect.height;
+    const w = boardFrame.clientWidth, h = boardFrame.clientHeight;
+    const res = dpr * currentZoom;
     [fieldCanvas, drawCanvas].forEach(c=>{
-      c.width = Math.round(w*dpr);
-      c.height = Math.round(h*dpr);
-      c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+      c.width = Math.round(w*res);
+      c.height = Math.round(h*res);
+      c.getContext('2d').setTransform(res,0,0,res,0,0);
     });
     drawField();
     redrawStrokes();
   }
 
   function fitFrame(){
-    const wrap = boardFrame.parentElement;
+    const wrap = boardViewport.parentElement;
     const wrapRect = wrap.getBoundingClientRect();
     const targetAspect = ASPECT[currentField]; // width/height
     let h = wrapRect.height;
@@ -353,8 +458,11 @@
       w = wrapRect.width;
       h = w / targetAspect;
     }
+    boardViewport.style.width = w + 'px';
+    boardViewport.style.height = h + 'px';
     boardFrame.style.width = w + 'px';
     boardFrame.style.height = h + 'px';
+    resetZoomState();
     sizeCanvases();
   }
 
@@ -548,10 +656,14 @@
 
   let activeStroke = null;
   let activeStrokeOwnerId = null;
+  const activeTouches = new Map(); // touch pointerId -> last {x,y} in viewport coords
 
   function getPos(evt){
     const rect = drawCanvas.getBoundingClientRect();
-    return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+    // rect already reflects the current pan/zoom transform, so dividing by
+    // currentZoom converts back to the frame's fixed logical coordinate
+    // space — a stroke drawn while zoomed in lands at the correct real spot.
+    return { x: (evt.clientX - rect.left) / currentZoom, y: (evt.clientY - rect.top) / currentZoom };
   }
 
   function pressureFor(evt){
@@ -559,19 +671,40 @@
     return 1;
   }
 
+  function cancelActiveStroke(){
+    if(!activeStroke) return;
+    const arr = strokes[currentField];
+    const idx = arr.indexOf(activeStroke);
+    if(idx !== -1) arr.splice(idx, 1);
+    activeStroke = null;
+    activeStrokeOwnerId = null;
+    redrawStrokes();
+  }
+
   drawCanvas.addEventListener('pointerdown', (evt)=>{
     evt.preventDefault();
 
-    // Palm rejection: while the Pencil is actively down, ignore any finger
-    // touch outright (it's almost certainly a resting palm). Also ignore any
-    // touch whose contact patch is much bigger than a fingertip.
     if(evt.pointerType === 'touch'){
+      activeTouches.set(evt.pointerId, viewportPoint(evt.clientX, evt.clientY));
+
+      // Two (or more) fingers down means the person wants to pinch-zoom or
+      // pan, never draw — cancel whatever a single finger may have just
+      // started and hand off to the pinch handler instead.
+      if(activeTouches.size >= 2){
+        cancelActiveStroke();
+        if(activeTouches.size === 2) beginPinch();
+        return;
+      }
+
+      // Palm rejection: while the Pencil is actively down, ignore any finger
+      // touch outright (it's almost certainly a resting palm). Also ignore
+      // any touch whose contact patch is much bigger than a fingertip.
       if(activePenId !== null) return;
       const size = Math.max(evt.width||0, evt.height||0);
       if(size > PALM_SIZE_THRESHOLD) return;
     }
 
-    drawCanvas.setPointerCapture(evt.pointerId);
+    try{ drawCanvas.setPointerCapture(evt.pointerId); }catch(e){ /* ignore */ }
     if(evt.pointerType === 'pen'){
       activePenId = evt.pointerId;
     }
@@ -588,6 +721,14 @@
   });
 
   drawCanvas.addEventListener('pointermove', (evt)=>{
+    if(evt.pointerType === 'touch' && activeTouches.has(evt.pointerId)){
+      activeTouches.set(evt.pointerId, viewportPoint(evt.clientX, evt.clientY));
+      if(pinch){
+        evt.preventDefault();
+        updatePinch();
+        return;
+      }
+    }
     if(!activeStroke || evt.pointerId !== activeStrokeOwnerId) return;
     evt.preventDefault();
     const pos = getPos(evt);
@@ -599,6 +740,10 @@
     if(evt.pointerType === 'pen' && activePenId === evt.pointerId){
       activePenId = null;
     }
+    if(evt.pointerType === 'touch' && activeTouches.has(evt.pointerId)){
+      activeTouches.delete(evt.pointerId);
+      if(pinch && activeTouches.size < 2) endPinch();
+    }
     if(activeStrokeOwnerId === evt.pointerId){
       activeStroke = null;
       activeStrokeOwnerId = null;
@@ -608,6 +753,11 @@
   drawCanvas.addEventListener('pointerup', endPointer);
   drawCanvas.addEventListener('pointercancel', endPointer);
   drawCanvas.addEventListener('pointerleave', endPointer);
+
+  resetZoomBtn.addEventListener('click', ()=>{
+    resetZoomState();
+    sizeCanvases();
+  });
 
   // ---------- Controls ----------
   tabs.forEach(btn=>{
