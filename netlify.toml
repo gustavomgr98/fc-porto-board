@@ -11,3 +11,8 @@
   for = "/sw.js"
   [headers.values]
     Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/ficha-gr/*"
+  [headers.values]
+    Cache-Control = "no-cache"

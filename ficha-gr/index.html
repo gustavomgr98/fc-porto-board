@@ -1257,6 +1257,14 @@ if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
   window.addEventListener("load", function(){
     navigator.serviceWorker.register("sw.js").catch(function(e){ console.warn("SW falhou:", e); });
   });
+  // Quando há uma versão nova instalada e pronta, recarrega a app sozinha
+  // para o utilizador ver sempre a última versão sem ter de fazer nada.
+  var jaRecarregou = false;
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if (jaRecarregou) return;
+    jaRecarregou = true;
+    window.location.reload();
+  });
 }
 </script>
 </body>

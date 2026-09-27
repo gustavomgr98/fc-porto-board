@@ -1,6 +1,6 @@
 // Service Worker — cache-first, para a Ficha de Observação GR funcionar 100% offline
 // depois de aberta uma primeira vez.
-var CACHE_NAME = "ficha-gr-fcportow-v1";
+var CACHE_NAME = "ficha-gr-fcportow-20260927124900";
 var ASSETS = [
   "./",
   "./index.html",
@@ -13,7 +13,13 @@ self.addEventListener("install", function(event){
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(function(cache){
-      return cache.addAll(ASSETS);
+      // "reload" ignora a cache HTTP do browser, para garantir que os ficheiros
+      // guardados nesta nova versão são mesmo os mais recentes do servidor.
+      return Promise.all(ASSETS.map(function(url){
+        return fetch(url, { cache: "reload" }).then(function(resp){
+          return cache.put(url, resp);
+        });
+      }));
     })
   );
 });
