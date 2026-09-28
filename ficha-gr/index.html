@@ -354,7 +354,6 @@
 
   <div class="acoes-header" id="barraLista">
     <button class="principal" id="btnNovaFichaTopo">+ Nova Ficha</button>
-    <button id="btnInstalar">📲 Instalar App</button>
     <button id="btnExportarTudo">📦 Exportar tudo</button>
     <button id="btnImportarTudo">📥 Importar</button>
   </div>
@@ -1126,121 +1125,6 @@
     abrirModal("Importar fichas", wrap, false, null);
   });
 
-  // ---------------- Instalar como app ----------------
-  var deferredInstallPrompt = null;
-  window.addEventListener("beforeinstallprompt", function(e){
-    e.preventDefault();
-    deferredInstallPrompt = e;
-  });
-  window.addEventListener("appinstalled", function(){
-    deferredInstallPrompt = null;
-    toast("App instalada!");
-  });
-
-  function isStandalone(){
-    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-  }
-  function isIOS(){
-    var ua = navigator.userAgent || "";
-    var iOSClassico = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-    var iPadOS13Mais = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-    return iOSClassico || iPadOS13Mais;
-  }
-  function isSafari(){
-    var ua = navigator.userAgent || "";
-    return /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
-  }
-  function isAndroid(){
-    return /Android/i.test(navigator.userAgent || "");
-  }
-
-  document.getElementById("btnInstalar").addEventListener("click", function(){
-    if(isStandalone()){
-      var okWrap = document.createElement("div");
-      var okBox = document.createElement("div");
-      okBox.className = "aviso-instalado";
-      okBox.textContent = "✅ Já estás a usar a app instalada neste ecrã.";
-      okWrap.appendChild(okBox);
-      abrirModal("App já instalada", okWrap, false, null);
-      return;
-    }
-
-    // Android / Chrome com prompt nativo disponível
-    if(deferredInstallPrompt){
-      deferredInstallPrompt.prompt();
-      deferredInstallPrompt.userChoice.finally(function(){ deferredInstallPrompt = null; });
-      return;
-    }
-
-    var wrap = document.createElement("div");
-
-    if(isIOS()){
-      if(!isSafari()){
-        var aviso = document.createElement("div");
-        aviso.className = "aviso-navegador";
-        aviso.textContent = "Estás a abrir noutro navegador (não o Safari). No iPhone/iPad, só o Safari consegue instalar esta ficha no Ecrã Principal — abre este ficheiro no Safari e repete este passo.";
-        wrap.appendChild(aviso);
-      }
-      var passos = [
-        ["⬆️", "Toca no ícone <b>Partilhar</b> (o quadrado com a seta para cima) na barra do Safari — em baixo no iPhone, ou em cima no iPad."],
-        ["📋", "Desliza a lista de opções e toca em <b>\"Adicionar ao Ecrã Principal\"</b>."],
-        ["✅", "Confirma o nome (ex: \"Ficha GR\") e toca em <b>\"Adicionar\"</b> no canto superior direito."],
-        ["🧤", "Pronto! Aparece um ícone na tua tela inicial — abre a partir daí para usar em ecrã inteiro, sem internet."]
-      ];
-      passos.forEach(function(p, i){
-        var linha = document.createElement("div");
-        linha.className = "passo-instalar";
-        var num = document.createElement("div");
-        num.className = "num";
-        num.textContent = (i+1);
-        var icone = document.createElement("div");
-        icone.className = "icone";
-        icone.textContent = p[0];
-        var txt = document.createElement("div");
-        txt.className = "txt2";
-        txt.innerHTML = p[1];
-        linha.appendChild(num);
-        linha.appendChild(icone);
-        linha.appendChild(txt);
-        wrap.appendChild(linha);
-      });
-      abrirModal("📲 Instalar no iPhone / iPad", wrap, false, null);
-      return;
-    }
-
-    if(isAndroid()){
-      var passosA = [
-        ["⋮", "Toca nos <b>três pontinhos</b> (menu) no canto superior direito do Chrome."],
-        ["📲", "Toca em <b>\"Instalar aplicação\"</b> ou <b>\"Adicionar ao ecrã principal\"</b>."],
-        ["✅", "Confirma e pronto — fica com ícone próprio, a abrir sem internet."]
-      ];
-      passosA.forEach(function(p, i){
-        var linha = document.createElement("div");
-        linha.className = "passo-instalar";
-        var num = document.createElement("div");
-        num.className = "num";
-        num.textContent = (i+1);
-        var icone = document.createElement("div");
-        icone.className = "icone";
-        icone.textContent = p[0];
-        var txt = document.createElement("div");
-        txt.className = "txt2";
-        txt.innerHTML = p[1];
-        linha.appendChild(num);
-        linha.appendChild(icone);
-        linha.appendChild(txt);
-        wrap.appendChild(linha);
-      });
-      abrirModal("📲 Instalar no Android", wrap, false, null);
-      return;
-    }
-
-    var generico = document.createElement("div");
-    generico.className = "txt2";
-    generico.innerHTML = "Abre o menu do teu navegador e procura a opção <b>\"Adicionar ao ecrã principal\"</b> ou <b>\"Instalar aplicação\"</b>.";
-    wrap.appendChild(generico);
-    abrirModal("📲 Instalar App", wrap, false, null);
-  });
 
   // ---------------- Arranque ----------------
   loadStore();
