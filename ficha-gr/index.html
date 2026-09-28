@@ -222,6 +222,50 @@
   }
   .chip.on{background:var(--grad-azul); border-color:var(--azul-esc); color:#fff;}
 
+  .registo-rapido{
+    background:#f3f6fa; border:1.5px solid var(--cinza-borda); border-radius:12px;
+    padding:12px; margin-bottom:12px;
+  }
+  .registo-rapido .titulo-rr{
+    font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:800;
+    color:var(--azul-esc); margin-bottom:9px;
+  }
+  .registo-rapido .minuto-row{display:flex; align-items:center; gap:8px; margin-bottom:11px;}
+  .registo-rapido .minuto-row label{font-size:12.5px; font-weight:700; color:var(--texto-suave);}
+  .registo-rapido input#obsMinuto{
+    width:64px; text-align:center; font-weight:800; font-size:16px; padding:9px 4px;
+    border:1.5px solid var(--cinza-borda); border-radius:8px; -moz-appearance:textfield;
+  }
+  .btn-min1{
+    border:1.5px solid var(--azul-esc); background:#fff; color:var(--azul-esc);
+    border-radius:8px; padding:9px 13px; font-weight:800; font-size:13px; cursor:pointer;
+  }
+  .btn-min1:active{transform:scale(.96);}
+  .lances-grid{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:4px;}
+  .lance-btn{
+    border:1.5px solid var(--cinza-borda); background:#fff; color:var(--texto);
+    padding:9px 13px; border-radius:10px; font-size:12.5px; font-weight:700; cursor:pointer;
+  }
+  .lance-btn:active{transform:scale(.96);}
+  .lance-btn.sel{background:var(--grad-dourado); border-color:var(--dourado-esc); color:#3a2c05;}
+  .valencia-row{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px;
+    padding-top:10px; border-top:1px dashed var(--cinza-borda);
+  }
+  .valencia-row.hidden{display:none;}
+  .valencia-row .lbl{font-size:12.5px; font-weight:700; color:var(--azul-esc); flex:1 1 100%;}
+  .btn-val{
+    flex:1 1 auto; padding:13px 10px; border-radius:10px; border:none;
+    font-weight:800; font-size:14px; cursor:pointer; color:#fff;
+  }
+  .btn-val:active{transform:scale(.97);}
+  .btn-val.pos{background:#1f8a4c;}
+  .btn-val.neg{background:#c0392b;}
+  .btn-val-cancel{
+    background:none; border:none; color:var(--texto-suave); font-size:12px;
+    text-decoration:underline; cursor:pointer; padding:6px;
+  }
+
   .rating-group h3{
     font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--azul-esc);
     margin:16px 0 9px; padding-bottom:6px; border-bottom:2px solid var(--dourado-cl); font-weight:800;
@@ -467,6 +511,31 @@
   <details class="bloco" open>
     <summary><span class="titulo-bloco">Observação do Jogo</span></summary>
     <div class="conteudo">
+      <div class="registo-rapido">
+        <div class="titulo-rr">⚡ Registo rápido</div>
+        <div class="minuto-row">
+          <label for="obsMinuto">Minuto:</label>
+          <input type="number" id="obsMinuto" min="0" max="130" inputmode="numeric" placeholder="—">
+          <button type="button" class="btn-min1" id="btnMinMais1">+1'</button>
+        </div>
+        <div class="lances-grid" id="lancesGrid">
+          <button type="button" class="lance-btn" data-lance="Cruzamento">Cruzamento</button>
+          <button type="button" class="lance-btn" data-lance="Bola atrasada">Bola atrasada</button>
+          <button type="button" class="lance-btn" data-lance="Bola no espaço">Bola no espaço</button>
+          <button type="button" class="lance-btn" data-lance="Defesa">Defesa</button>
+          <button type="button" class="lance-btn" data-lance="Saída aérea">Saída aérea</button>
+          <button type="button" class="lance-btn" data-lance="1x1">1x1</button>
+          <button type="button" class="lance-btn" data-lance="Bola parada">Bola parada</button>
+          <button type="button" class="lance-btn" data-lance="Passe / Distribuição">Passe / Distribuição</button>
+          <button type="button" class="lance-btn" data-lance="Erro">Erro</button>
+        </div>
+        <div class="valencia-row hidden" id="valenciaRow">
+          <span class="lbl" id="valenciaLabel"></span>
+          <button type="button" class="btn-val pos" id="btnValPos">✅ Positivo</button>
+          <button type="button" class="btn-val neg" id="btnValNeg">❌ Negativo</button>
+          <button type="button" class="btn-val-cancel" id="btnValCancel">cancelar</button>
+        </div>
+      </div>
       <textarea class="grande" data-f="observacao_jogo" placeholder="Rascunho ao vivo: minuto a minuto, lances-chave, intervenções, decisões..."></textarea>
     </div>
   </details>
@@ -965,6 +1034,67 @@
     refreshAllRatings();
     refreshNotaFinal();
     refreshAllFotos();
+    resetRegistoRapido();
+  }
+
+  // ---------------- Registo rápido (ao vivo) ----------------
+  var lanceSelecionado = null;
+
+  function resetRegistoRapido(){
+    lanceSelecionado = null;
+    var grid = document.getElementById("lancesGrid");
+    if(grid) grid.querySelectorAll(".lance-btn").forEach(function(b){ b.classList.remove("sel"); });
+    var valRow = document.getElementById("valenciaRow");
+    if(valRow) valRow.classList.add("hidden");
+    var minutoInput = document.getElementById("obsMinuto");
+    if(minutoInput) minutoInput.value = "";
+  }
+
+  function bindRegistoRapido(){
+    var grid = document.getElementById("lancesGrid");
+    var valRow = document.getElementById("valenciaRow");
+    var valLabel = document.getElementById("valenciaLabel");
+    var minutoInput = document.getElementById("obsMinuto");
+
+    grid.querySelectorAll(".lance-btn").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        lanceSelecionado = btn.dataset.lance;
+        grid.querySelectorAll(".lance-btn").forEach(function(b){ b.classList.remove("sel"); });
+        btn.classList.add("sel");
+        valLabel.textContent = "A registar: " + lanceSelecionado + (minutoInput.value ? " · " + minutoInput.value + "'" : " · sem minuto");
+        valRow.classList.remove("hidden");
+      });
+    });
+
+    function registar(val){
+      if(!lanceSelecionado || !atual) return;
+      var ta = document.querySelector('textarea[data-f="observacao_jogo"]');
+      var min = (minutoInput.value || "").trim();
+      var prefixo = min ? (min + "' — ") : "";
+      var icon = val === "pos" ? "✅" : "❌";
+      var linha = prefixo + lanceSelecionado + " " + icon;
+      ta.value = (ta.value ? ta.value + "\n" : "") + linha;
+      ta.dispatchEvent(new Event("input", {bubbles:true}));
+      ta.scrollTop = ta.scrollHeight;
+      toast("Registado: " + linha);
+      resetRegistoRapido();
+    }
+
+    document.getElementById("btnValPos").addEventListener("click", function(){ registar("pos"); });
+    document.getElementById("btnValNeg").addEventListener("click", function(){ registar("neg"); });
+    document.getElementById("btnValCancel").addEventListener("click", resetRegistoRapido);
+
+    document.getElementById("btnMinMais1").addEventListener("click", function(){
+      var v = parseInt(minutoInput.value || "0", 10);
+      if(isNaN(v)) v = 0;
+      minutoInput.value = v + 1;
+    });
+
+    minutoInput.addEventListener("input", function(){
+      if(lanceSelecionado){
+        valLabel.textContent = "A registar: " + lanceSelecionado + (minutoInput.value ? " · " + minutoInput.value + "'" : " · sem minuto");
+      }
+    });
   }
 
   // ---------------- Resumo em texto ----------------
@@ -1134,6 +1264,7 @@
   bindNotaFinal();
   bindFoto("fotoAtletaBox","fotoAtletaInput","fotoAtletaRm","atleta");
   bindFoto("fotoEstadioBox","fotoEstadioInput","fotoEstadioRm","estadio");
+  bindRegistoRapido();
   mostrarLista();
 
   window.addEventListener("beforeunload", function(){ if(atual) persistStore(false); });
