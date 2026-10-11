@@ -234,6 +234,15 @@
   .sug-chip.bai{background:#fdeaea; border-color:#c0392b; color:#8e2318;}
   .btn-sug{margin-top:10px; border:1.5px solid var(--azul-esc); background:#fff; color:var(--azul-esc); border-radius:9px; padding:9px 12px; font-weight:800; font-size:12.5px; cursor:pointer;}
   .btn-sug:active{transform:scale(.97);}
+  .preset-lista{display:flex; flex-direction:column; gap:8px; margin-bottom:12px;}
+  .preset-btn{
+    text-align:left; border:1.5px solid var(--cinza-borda); background:#fff; color:var(--texto);
+    border-radius:11px; padding:11px 12px; font-size:13px; line-height:1.4; cursor:pointer;
+  }
+  .preset-btn b{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--azul-esc); margin-bottom:3px;}
+  .preset-btn:active{transform:scale(.99);}
+  .preset-btn.sel{background:var(--grad-dourado); border-color:var(--dourado-esc); color:#3a2c05;}
+  .preset-btn.sel b{color:#3a2c05;}
   .registo-rapido{
     background:#f3f6fa; border:1.5px solid var(--cinza-borda); border-radius:12px;
     padding:12px; margin-bottom:12px;
@@ -516,7 +525,12 @@
   <details class="bloco">
     <summary><span class="titulo-bloco">Aquecimento / Ativação</span></summary>
     <div class="conteudo">
-      <textarea data-f="aquecimento" placeholder="Notas rápidas sobre o aquecimento e ativação pré-jogo..."></textarea>
+      <div class="preset-lista" id="presetAquecimento">
+        <button type="button" class="preset-btn" data-i="0"><b>Excelente</b>Excelente aquecimento, focada e motivada para o momento competitivo, demonstrou uma excelente atitude de entreajuda na ativação da colega.</button>
+        <button type="button" class="preset-btn" data-i="1"><b>Bom</b>Bom aquecimento no geral, demonstrou algum nervosismo, contudo foi melhorando a sua postura gradualmente durante a ativação, demonstrou entreajuda na ativação da colega.</button>
+        <button type="button" class="preset-btn" data-i="2"><b>A melhorar</b>Ativação com algum nervosismo por parte da atleta, condicionando as ações técnico-táticas que tinha de executar, deve melhorar a sua autoconfiança em momentos competitivos.</button>
+      </div>
+      <textarea data-f="aquecimento" placeholder="Ou escreve notas rápidas sobre o aquecimento e ativação pré-jogo..."></textarea>
     </div>
   </details>
 
@@ -1143,10 +1157,42 @@
     refreshNotaFinal();
     refreshAllFotos();
     resetRegistoRapido();
+    atualizarPresetAquecimento();
   }
 
   // ---------------- Registo rápido (ao vivo) ----------------
   var lanceSelecionado = null;
+
+  function atualizarPresetAquecimento(){
+    var ta = document.querySelector('textarea[data-f="aquecimento"]');
+    document.querySelectorAll("#presetAquecimento .preset-btn").forEach(function(b){
+      b.classList.toggle("sel", !!ta && ta.value.trim() !== "" && ta.value.trim() === b.dataset.txt);
+    });
+  }
+
+  function bindPresetAquecimento(){
+    var ta = document.querySelector('textarea[data-f="aquecimento"]');
+    var btns = document.querySelectorAll("#presetAquecimento .preset-btn");
+    btns.forEach(function(b){
+      var label = b.querySelector("b").textContent;
+      b.dataset.txt = b.textContent.slice(label.length).trim();
+    });
+    var todos = Array.prototype.map.call(btns, function(b){ return b.dataset.txt; });
+    btns.forEach(function(b){
+      b.addEventListener("click", function(){
+        if(!atual) return;
+        var cur = ta.value.trim();
+        if(cur === b.dataset.txt){ ta.value = ""; }
+        else {
+          if(cur && todos.indexOf(cur) === -1 && !confirm("Substituir o texto atual do aquecimento por esta versão?")) return;
+          ta.value = b.dataset.txt;
+        }
+        ta.dispatchEvent(new Event("input", {bubbles:true}));
+        atualizarPresetAquecimento();
+      });
+    });
+    ta.addEventListener("input", atualizarPresetAquecimento);
+  }
 
   function resetRegistoRapido(){
     lanceSelecionado = null;
@@ -1373,6 +1419,7 @@
   bindFoto("fotoAtletaBox","fotoAtletaInput","fotoAtletaRm","atleta");
   bindFoto("fotoEstadioBox","fotoEstadioInput","fotoEstadioRm","estadio");
   bindRegistoRapido();
+  bindPresetAquecimento();
   mostrarLista();
 
   window.addEventListener("beforeunload", function(){ if(atual) persistStore(false); });
