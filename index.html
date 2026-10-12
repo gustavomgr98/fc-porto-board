@@ -635,47 +635,115 @@
     strokes[currentField].forEach(s => paintStroke(s));
   }
 
-  function paintStroke(stroke){
-    if(stroke.points.length < 1) return;
+  // Strokes are drawn as a chain of quadratic curves through the midpoints of
+  // consecutive samples (the classic "smooth ink" technique), so the raw,
+  // slightly jittery Pencil samples become clean flowing lines. Each piece is
+  // stroked on its own so the width can follow the pressure along the stroke.
+  function beginInk(stroke){
     dctx.lineCap = 'round';
     dctx.lineJoin = 'round';
     if(stroke.erase){
       dctx.globalCompositeOperation = 'destination-out';
-      dctx.strokeStyle = 'rgba(0,0,0,1)';
+      dctx.strokeStyle = dctx.fillStyle = 'rgba(0,0,0,1)';
     } else {
       dctx.globalCompositeOperation = 'source-over';
-      dctx.strokeStyle = stroke.color;
+      dctx.strokeStyle = dctx.fillStyle = stroke.color;
     }
+  }
+  function endInk(){ dctx.globalCompositeOperation = 'source-over'; }
+
+  function mid(a, b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+
+  function inkDot(stroke, p){
     dctx.beginPath();
-    const pts = stroke.points;
-    dctx.moveTo(pts[0].x, pts[0].y);
-    for(let i=1;i<pts.length;i++){
-      const p = pts[i];
-      dctx.lineWidth = stroke.size * (p.p || 1);
-      dctx.lineTo(p.x, p.y);
-      dctx.stroke();
-      dctx.beginPath();
-      dctx.moveTo(p.x, p.y);
+    dctx.arc(p.x, p.y, stroke.size * (p.p || 1) / 2, 0, Math.PI*2);
+    dctx.fill();
+  }
+  function inkLine(stroke, a, b, pr){
+    dctx.lineWidth = stroke.size * (pr || 1);
+    dctx.beginPath(); dctx.moveTo(a.x, a.y); dctx.lineTo(b.x, b.y); dctx.stroke();
+  }
+  function inkCurve(stroke, a, ctrl, b){
+    dctx.lineWidth = stroke.size * (ctrl.p || 1);
+    dctx.beginPath(); dctx.moveTo(a.x, a.y); dctx.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y); dctx.stroke();
+  }
+
+  // Paints what the newest sample (index n) adds to a stroke that is being
+  // drawn live: the curve piece it completes, plus a short provisional tail
+  // reaching the pen tip so there is no visible lag behind the Pencil.
+  function paintLiveStep(stroke){
+    const pts = stroke.points, n = pts.length - 1;
+    if(n < 1) return;
+    beginInk(stroke);
+    if(n === 1){
+      inkLine(stroke, pts[0], pts[1], pts[1].p);
+    } else {
+      const start = n === 2 ? pts[0] : mid(pts[n-2], pts[n-1]);
+      inkCurve(stroke, start, pts[n-1], mid(pts[n-1], pts[n]));
+      inkLine(stroke, mid(pts[n-1], pts[n]), pts[n], pts[n].p);
     }
-    dctx.globalCompositeOperation = 'source-over';
+    endInk();
+  }
+
+  function paintStroke(stroke){
+    const pts = stroke.points, n = pts.length - 1;
+    if(n < 0) return;
+    beginInk(stroke);
+    if(n === 0){
+      inkDot(stroke, pts[0]);
+    } else if(n === 1){
+      inkLine(stroke, pts[0], pts[1], pts[1].p);
+    } else {
+      for(let k=1; k<n; k++){
+        const start = k === 1 ? pts[0] : mid(pts[k-1], pts[k]);
+        inkCurve(stroke, start, pts[k], mid(pts[k], pts[k+1]));
+      }
+      inkLine(stroke, mid(pts[n-1], pts[n]), pts[n], pts[n].p);
+    }
+    endInk();
   }
 
   let activeStroke = null;
   let activeStrokeOwnerId = null;
   const activeTouches = new Map(); // touch pointerId -> last {x,y} in viewport coords
 
-  function getPos(evt){
-    const rect = drawCanvas.getBoundingClientRect();
+  function posFrom(evt, rect){
     // rect already reflects the current pan/zoom transform, so dividing by
     // currentZoom converts back to the frame's fixed logical coordinate
     // space — a stroke drawn while zoomed in lands at the correct real spot.
     return { x: (evt.clientX - rect.left) / currentZoom, y: (evt.clientY - rect.top) / currentZoom };
   }
+  function getPos(evt){ return posFrom(evt, drawCanvas.getBoundingClientRect()); }
 
-  function pressureFor(evt){
-    if(evt.pointerType === 'pen' && evt.pressure > 0) return 0.5 + evt.pressure*1.1;
-    return 1;
+  const round2 = v => Math.round(v*100)/100;
+  const round3 = v => Math.round(v*1000)/1000;
+
+  // Pencil pressure -> line width multiplier (0.5x light touch .. 1.6x firm),
+  // smoothed against the previous sample so the width flows instead of
+  // stepping. A reported pressure of 0 (it happens on the first/last sample)
+  // reuses the previous value instead of collapsing the line.
+  const PEN_DEFAULT_PRESSURE = 0.8;
+  function pressureFor(evt, prev){
+    if(evt.pointerType !== 'pen') return 1;
+    const raw = evt.pressure > 0 ? 0.5 + evt.pressure*1.1 : (prev == null ? PEN_DEFAULT_PRESSURE : prev);
+    return prev == null ? raw : prev*0.55 + raw*0.45;
   }
+
+  // Adds a sample to the live stroke unless it barely moved (sub-pixel
+  // jitter) — keeps lines clean and the saved data small even though the
+  // Pencil reports far more samples than a finger does.
+  function addSample(evt, rect){
+    const pts = activeStroke.points, last = pts[pts.length-1];
+    const pos = posFrom(evt, rect);
+    if(Math.hypot(pos.x-last.x, pos.y-last.y) < 0.6 / currentZoom) return false;
+    pts.push({ x:round2(pos.x), y:round2(pos.y), p:round3(pressureFor(evt, last.p)) });
+    return true;
+  }
+
+  // Short grace period after the Pencil lifts, so a palm leaving the glass at
+  // the same moment can't leave a stray mark.
+  const PEN_UP_GRACE_MS = 120;
+  let penUpAt = 0;
 
   function cancelActiveStroke(){
     if(!activeStroke) return;
@@ -690,7 +758,23 @@
   drawCanvas.addEventListener('pointerdown', (evt)=>{
     evt.preventDefault();
 
+    if(evt.pointerType === 'pen'){
+      // The Pencil always wins: whatever a resting palm or finger had started
+      // (a stray stroke, a pinch) is dropped the moment the Pencil touches.
+      if(activeStroke && activeStrokeOwnerId !== evt.pointerId) cancelActiveStroke();
+      if(pinch) endPinch();
+      activeTouches.clear();
+    }
+
     if(evt.pointerType === 'touch'){
+      // Palm rejection: ignore finger touches while the Pencil is down (it's
+      // almost certainly a resting palm), just after it lifts, or whose
+      // contact patch is much bigger than a fingertip. Rejected touches are
+      // never registered, so they can't trigger a pinch either.
+      if(activePenId !== null || performance.now() - penUpAt < PEN_UP_GRACE_MS) return;
+      const size = Math.max(evt.width||0, evt.height||0);
+      if(size > PALM_SIZE_THRESHOLD) return;
+
       activeTouches.set(evt.pointerId, viewportPoint(evt.clientX, evt.clientY));
 
       // Two (or more) fingers down means the person wants to pinch-zoom or
@@ -701,13 +785,6 @@
         if(activeTouches.size === 2) beginPinch();
         return;
       }
-
-      // Palm rejection: while the Pencil is actively down, ignore any finger
-      // touch outright (it's almost certainly a resting palm). Also ignore
-      // any touch whose contact patch is much bigger than a fingertip.
-      if(activePenId !== null) return;
-      const size = Math.max(evt.width||0, evt.height||0);
-      if(size > PALM_SIZE_THRESHOLD) return;
     }
 
     try{ drawCanvas.setPointerCapture(evt.pointerId); }catch(e){ /* ignore */ }
@@ -720,10 +797,12 @@
       color: currentColor,
       size: Number(brushSize.value),
       erase: erasing,
-      points: [{x:pos.x, y:pos.y, p:pressureFor(evt)}]
+      points: [{x:round2(pos.x), y:round2(pos.y), p:round3(pressureFor(evt, null))}]
     };
     activeStrokeOwnerId = evt.pointerId;
     strokes[currentField].push(activeStroke);
+    // Immediate feedback: a dot under the tip (and a lone tap stays a dot).
+    beginInk(activeStroke); inkDot(activeStroke, activeStroke.points[0]); endInk();
   });
 
   drawCanvas.addEventListener('pointermove', (evt)=>{
@@ -737,14 +816,21 @@
     }
     if(!activeStroke || evt.pointerId !== activeStrokeOwnerId) return;
     evt.preventDefault();
-    const pos = getPos(evt);
-    activeStroke.points.push({x:pos.x, y:pos.y, p:pressureFor(evt)});
-    paintStroke({...activeStroke, points: activeStroke.points.slice(-2)});
+    // The browser delivers ~60 move events/s but the Pencil samples at 240Hz;
+    // the coalesced events are the in-between samples — using them is what
+    // makes fast curves and handwriting-style strokes come out smooth.
+    const coalesced = evt.getCoalescedEvents ? evt.getCoalescedEvents() : [];
+    const list = coalesced.length ? coalesced : [evt];
+    const rect = drawCanvas.getBoundingClientRect();
+    for(const e of list){
+      if(addSample(e, rect)) paintLiveStep(activeStroke);
+    }
   });
 
   function endPointer(evt){
     if(evt.pointerType === 'pen' && activePenId === evt.pointerId){
       activePenId = null;
+      penUpAt = performance.now();
     }
     if(evt.pointerType === 'touch' && activeTouches.has(evt.pointerId)){
       activeTouches.delete(evt.pointerId);
