@@ -1,12 +1,15 @@
 // Service Worker — cache-first, para a Ficha de Observação GR funcionar 100% offline
 // depois de aberta uma primeira vez.
-var CACHE_NAME = "ficha-gr-fcportow-20261011135000";
+var CACHE_NAME = "ficha-gr-fcportow-20261019132000";
 var ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./icon-180.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./jszip.min.js",
+  "./docx-export.js",
+  "./modelo.docx"
 ];
 
 self.addEventListener("install", function(event){

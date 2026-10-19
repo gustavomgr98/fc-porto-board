@@ -243,6 +243,12 @@
   .preset-btn:active{transform:scale(.99);}
   .preset-btn.sel{background:var(--grad-dourado); border-color:var(--dourado-esc); color:#3a2c05;}
   .preset-btn.sel b{color:#3a2c05;}
+  .btn-word{
+    display:block; width:100%; margin:6px 0 4px; padding:15px 12px; border-radius:12px; border:1.5px solid var(--dourado-esc);
+    background:var(--grad-dourado); color:#3a2c05; font-weight:800; font-size:15px; cursor:pointer;
+    box-shadow:0 3px 10px rgba(0,29,61,.18);
+  }
+  .btn-word:active{transform:scale(.98);}
   .registo-rapido{
     background:#f3f6fa; border:1.5px solid var(--cinza-borda); border-radius:12px;
     padding:12px; margin-bottom:12px;
@@ -457,6 +463,9 @@
         <label class="campo" style="grid-column:1/-1;"><span>Guarda-redes observada</span>
           <input type="text" data-f="gr_nome" placeholder="Nome da atleta"></label>
 
+        <label class="campo" style="grid-column:1/-1;"><span>Jogo (equipas)</span>
+          <input type="text" data-f="jogo_equipas" placeholder="Ex: FC Porto W vs Sporting CP"></label>
+
         <label class="campo"><span>Jornada / Competição</span>
           <input type="text" data-f="jornada" placeholder="Ex: Jornada 5 · Liga BPI"></label>
         <label class="campo"><span>Data e hora</span>
@@ -634,6 +643,8 @@
     </div>
   </details>
 
+  <button class="btn-word" id="btnExportarWord">📄 Exportar para o Word oficial</button>
+
   </div><!-- /viewFicha -->
 
 </main>
@@ -657,6 +668,8 @@
   </div>
 </div>
 
+<script src="jszip.min.js"></script>
+<script src="docx-export.js"></script>
 <script>
 (function(){
   "use strict";
@@ -709,7 +722,7 @@
       criado_em: Date.now(),
       atualizado_em: Date.now(),
       ratings: {}, chips: {}, fotos: {},
-      gr_nome:"", jornada:"", data_jogo:"", hora_jogo:"", escalao:"",
+      gr_nome:"", jogo_equipas:"", jornada:"", data_jogo:"", hora_jogo:"", escalao:"",
       gr_titular:"", gr_suplente:"", resultado:"", local_jogo:"",
       temperatura:"", aquecimento:"", observacao_jogo:"",
       aspetos_positivos:"", aspetos_melhorar:"", erros_corrigir:"",
@@ -869,6 +882,10 @@
           renderLista();
         }
       });
+      var btnWord = document.createElement("button");
+      btnWord.textContent = "Word";
+      btnWord.addEventListener("click", function(ev){ ev.stopPropagation(); exportarWord(f); });
+      acoesCard.appendChild(btnWord);
       acoesCard.appendChild(btnDup);
       acoesCard.appendChild(btnDel);
       meta2.appendChild(acoesCard);
@@ -894,6 +911,9 @@
   document.getElementById("btnVoltarLista").addEventListener("click", mostrarLista);
 
   // ---------------- Campos do formulário (ligados a `atual`) ----------------
+  window.RATING_LABELS = {};
+  Object.keys(RATINGS).forEach(function(g){ RATINGS[g].forEach(function(p){ window.RATING_LABELS[p[0]] = p[1]; }); });
+
   function buildRatings(){
     Object.keys(RATINGS).forEach(function(groupId){
       var container = document.getElementById(groupId);
@@ -1258,6 +1278,7 @@
     L.push("FICHA DE OBSERVAÇÃO DE GUARDA-REDES — FC PORTO W");
     L.push("=================================================");
     L.push("Guarda-redes observada: " + (s.gr_nome||"-"));
+    L.push("Jogo: " + (s.jogo_equipas||"-"));
     L.push("Jornada/Competição: " + (s.jornada||"-"));
     L.push("Data/Hora: " + (s.data_jogo||"-") + " " + (s.hora_jogo||""));
     L.push("Escalão: " + (s.escalao||"-") + "   Terreno: " + (s.chips.terreno||"-"));
@@ -1409,6 +1430,37 @@
     abrirModal("Importar fichas", wrap, false, null);
   });
 
+
+  // ---------------- Exportar para o Word oficial ----------------
+  var aExportar = false;
+  async function exportarWord(f){
+    if(aExportar || !f) return;
+    aExportar = true;
+    try{
+      if(atual) persistStore(false);
+      toast("A gerar o Word…");
+      var r = await window.exportarFichaWord(f);
+      var file = new File([r.blob], r.nome, {type: r.blob.type});
+      var toque = window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
+      if(toque && navigator.canShare && navigator.canShare({files:[file]})){
+        try{ await navigator.share({files:[file], title:r.nome}); return; }
+        catch(e){ if(e && e.name === "AbortError") return; }
+      }
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(r.blob);
+      a.download = r.nome;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+      toast("Word gerado");
+    }catch(e){
+      console.error(e);
+      alert("Não consegui gerar o Word: " + (e && e.message ? e.message : e));
+    }finally{
+      aExportar = false;
+    }
+  }
+  document.getElementById("btnExportarWord").addEventListener("click", function(){ exportarWord(atual); });
 
   // ---------------- Arranque ----------------
   loadStore();
