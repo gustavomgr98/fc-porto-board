@@ -333,7 +333,7 @@
 
     var blob = await zip.generateAsync({type: "blob", compression: "DEFLATE",
       mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
-    var partes = ["Ficha_Observacao_GR", nomePasta(f.jogo_equipas), nomePasta(f.gr_nome || f.gr_titular).toUpperCase()].filter(Boolean);
+    var partes = ["Ficha_Observacao_GR", nomePasta(f.jogo_equipas), nomePasta(f.escalao), nomePasta(f.gr_nome || f.gr_titular).toUpperCase()].filter(Boolean);
     return {blob: blob, nome: partes.join("_") + ".docx"};
   }
 
