@@ -478,8 +478,9 @@
           <input type="text" data-f="escalao" placeholder="Ex: Sub-19 / Sénior"></label>
         <label class="campo"><span>Terreno</span>
           <div class="chips" data-chipgroup="terreno">
-            <div class="chip" data-val="Casa">Casa</div>
-            <div class="chip" data-val="Fora">Fora</div>
+            <div class="chip" data-val="Natural">Natural</div>
+            <div class="chip" data-val="Sintético">Sintético</div>
+            <div class="chip" data-val="Híbrido">Híbrido</div>
           </div></label>
 
         <label class="campo"><span>GR titular</span>
@@ -1003,14 +1004,70 @@
     return d;
   }
 
+  function maiusc(s){ return String(s).toLocaleUpperCase("pt-PT"); }
+
+  // Itens com nota 1-3, pela ordem da ficha (como no documento oficial)
+  function melhorarOrdemFicha(){
+    var out = [];
+    if(!atual) return out;
+    Object.keys(RATINGS).forEach(function(g){
+      RATINGS[g].forEach(function(p){
+        var v = atual.ratings[p[0]];
+        if(v && v <= 3) out.push(p[1]);
+      });
+    });
+    return out;
+  }
+  function textoMelhorar(){
+    var l = melhorarOrdemFicha();
+    return l.map(function(n, i){ return "• " + maiusc(n) + (i < l.length - 1 ? ";" : "."); }).join("\n");
+  }
+  function textoErros(){
+    var l = melhorarOrdemFicha();
+    return l.length ? "• " + l.map(maiusc).join("; ") + "." : "";
+  }
+
+  // "melhorar" e "erros" acompanham as notas automaticamente, até editares o texto à mão.
+  var AUTO = {
+    melhorar: {campo:"aspetos_melhorar", texto: textoMelhorar},
+    erros:    {campo:"erros_corrigir",   texto: textoErros}
+  };
+  function aplicarAuto(){
+    if(!atual) return;
+    if(!atual.auto){
+      atual.auto = {
+        melhorar: !(atual.aspetos_melhorar || "").trim(),
+        erros: !(atual.erros_corrigir || "").trim()
+      };
+    }
+    var mudou = false;
+    Object.keys(AUTO).forEach(function(k){
+      if(!atual.auto[k]) return;
+      var cfg = AUTO[k], t = cfg.texto();
+      if((atual[cfg.campo] || "") !== t){
+        atual[cfg.campo] = t;
+        var ta = document.querySelector('textarea[data-f="'+cfg.campo+'"]');
+        if(ta) ta.value = t;
+        mudou = true;
+      }
+    });
+    if(mudou){ atual.atualizado_em = Date.now(); persistStore(false); }
+  }
+  function reporAuto(k){
+    if(!atual) return;
+    atual.auto[k] = true;
+    aplicarAuto();
+    atualizarSugestoes();
+  }
+
   function inserirNoCampo(campo, lista){
     if(!atual || !lista.length) return;
     var ta = document.querySelector('textarea[data-f="'+campo+'"]');
     var linhas = (ta.value || "").split("\n");
     var novas = [];
-    lista.forEach(function(it){
-      var linha = "• " + it.nome + " (" + it.nota + "/5)";
-      var jaTem = linhas.some(function(l){ return l.indexOf("• " + it.nome + " (") === 0; });
+    lista.forEach(function(it, i){
+      var linha = "• " + maiusc(it.nome) + ";";
+      var jaTem = linhas.some(function(l){ return l.indexOf("• " + maiusc(it.nome)) === 0; });
       if(!jaTem) novas.push(linha);
     });
     if(!novas.length){ toast("Já está tudo inserido"); return; }
@@ -1019,7 +1076,7 @@
     toast(novas.length + " item(ns) inserido(s)");
   }
 
-  function montarSugBox(box, titulo, blocos, campos){
+  function montarSugBox(box, titulo, blocos){
     box.innerHTML = "";
     var t = document.createElement("div");
     t.className = "titulo-rr";
@@ -1034,12 +1091,28 @@
       s.textContent = bl.rotulo;
       box.appendChild(s);
       box.appendChild(chipsSug(bl.lista, bl.tipo));
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "btn-sug";
-      btn.textContent = "＋ Inserir no texto";
-      btn.addEventListener("click", function(){ inserirNoCampo(bl.campo, bl.lista); });
-      box.appendChild(btn);
+      if(bl.auto){
+        var st = document.createElement("div");
+        st.className = "sug-sub";
+        if(atual && atual.auto && atual.auto[bl.auto]){
+          st.textContent = "✓ Preenchido automaticamente no texto";
+        } else {
+          st.textContent = "Texto editado à mão";
+          var br = document.createElement("button");
+          br.type = "button"; br.className = "btn-sug";
+          br.textContent = "↻ Repor automático";
+          br.addEventListener("click", function(){ reporAuto(bl.auto); });
+          box.appendChild(st); box.appendChild(br); return;
+        }
+        box.appendChild(st);
+      } else {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-sug";
+        btn.textContent = "＋ Inserir no texto";
+        btn.addEventListener("click", function(){ inserirNoCampo(bl.campo, bl.lista); });
+        box.appendChild(btn);
+      }
     });
     if(!algum){
       var v = document.createElement("div");
@@ -1050,15 +1123,16 @@
   }
 
   function atualizarSugestoes(){
+    aplicarAuto();
     var n = notasPorTipo();
     var b1 = document.getElementById("sugPosMel");
     var b2 = document.getElementById("sugErros");
     if(b1) montarSugBox(b1, "📊 Pelas notas da avaliação (4–5 positivo · 1–3 a melhorar)", [
       {rotulo:"✅ Positivos (nota 4 e 5)", lista:n.pos, tipo:"pos", campo:"aspetos_positivos"},
-      {rotulo:"🔧 A melhorar (nota 1 a 3)", lista:n.mel, tipo:"mel", campo:"aspetos_melhorar"}
+      {rotulo:"🔧 A melhorar (nota 1 a 3)", lista:n.mel, tipo:"mel", auto:"melhorar"}
     ]);
     if(b2) montarSugBox(b2, "📊 A corrigir pelas notas (1 a 3)", [
-      {rotulo:"Por ordem de prioridade (pior nota primeiro)", lista:n.mel, tipo:"mel", campo:"erros_corrigir"}
+      {rotulo:"Itens a trabalhar", lista:n.mel, tipo:"mel", auto:"erros"}
     ]);
   }
 
@@ -1067,6 +1141,11 @@
       el.addEventListener("input", function(){
         if(!atual) return;
         atual[el.dataset.f] = el.value;
+        if(atual.auto){
+          if(el.dataset.f === "aspetos_melhorar") atual.auto.melhorar = false;
+          if(el.dataset.f === "erros_corrigir") atual.auto.erros = false;
+          if(el.dataset.f === "aspetos_melhorar" || el.dataset.f === "erros_corrigir") atualizarSugestoes();
+        }
         atual.atualizado_em = Date.now();
         persistStore(false);
         if(el.dataset.f === "gr_nome" || el.dataset.f === "jornada") atualizarLabelHeader();

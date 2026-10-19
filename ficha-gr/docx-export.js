@@ -57,6 +57,18 @@
       if(!rPr){ var rp = kids(r, "rPr")[0]; if(rp) rPr = rp; }
     });
     if(!rPr) rPr = doc.importNode(parseFrag(RPR_DEFAULT), true);
+    if(opts.bold || opts.size){
+      rPr = rPr.cloneNode(true);
+      if(opts.bold && !kids(rPr, "b").length){
+        var b = mk(doc, "b"), bcs = mk(doc, "bCs");
+        var after = kids(rPr, "rFonts")[0];
+        rPr.insertBefore(bcs, after ? after.nextSibling : rPr.firstChild);
+        rPr.insertBefore(b, bcs);
+      }
+      if(opts.size) ["sz", "szCs"].forEach(function(n){
+        kids(rPr, n).forEach(function(x){ x.setAttributeNS(W, "w:val", String(opts.size)); });
+      });
+    }
     kids(p, "r").forEach(function(r){ p.removeChild(r); });
     if(opts.center){
       var pPr = kids(p, "pPr")[0];
@@ -67,7 +79,7 @@
   }
 
   // Preenche uma caixa com várias linhas pautadas (uma linha de texto por parágrafo).
-  function fillBox(doc, firstP, text){
+  function fillBox(doc, firstP, text, opts){
     var tc = firstP.parentNode;
     var paras = kids(tc, "p");
     var lines = String(text).split(/\r?\n/).filter(function(l){ return l.trim() !== ""; });
@@ -79,7 +91,7 @@
         last.parentNode.insertBefore(p, last.nextSibling);
         paras.push(p);
       }
-      setParaText(doc, p, ln);
+      setParaText(doc, p, ln, opts || {bold: true, size: 20});
     });
   }
 
@@ -88,7 +100,7 @@
     var lp = findP(doc, label);
     if(!lp) return;
     var vp = nextP(lp);
-    if(vp) setParaText(doc, vp, value);
+    if(vp) setParaText(doc, vp, value, {bold: true});
   }
 
   function setField(doc, name, text, dd, tamanho){
@@ -157,18 +169,22 @@
   }
   function soLetras(s){ return String(s || "").normalize("NFD").replace(/[^A-Za-z]/g, "").toLowerCase(); }
 
-  function prepararFoto(dataUrl, maxPx){
+  // Recorta a foto para ocupar a caixa toda (proporção wDxa:hDxa), com foco mais acima (rostos).
+  function prepararFoto(dataUrl, wDxa, hDxa){
     return new Promise(function(resolve){
       if(!dataUrl){ resolve(null); return; }
       var img = new Image();
       img.onload = function(){
-        var s = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight));
-        var w = Math.max(1, Math.round(img.naturalWidth * s)), h = Math.max(1, Math.round(img.naturalHeight * s));
-        var c = document.createElement("canvas"); c.width = w; c.height = h;
+        var alvo = wDxa / hDxa, iw = img.naturalWidth, ih = img.naturalHeight;
+        var sw = iw, sh = ih, sx = 0, sy = 0;
+        if(iw / ih > alvo){ sw = Math.round(ih * alvo); sx = Math.round((iw - sw) / 2); }
+        else { sh = Math.round(iw / alvo); sy = Math.round((ih - sh) * 0.22); }
+        var ow = Math.min(sw, 1100), oh = Math.round(ow / alvo);
+        var c = document.createElement("canvas"); c.width = ow; c.height = oh;
         var ctx = c.getContext("2d");
-        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve({ b64: c.toDataURL("image/jpeg", 0.85).split(",")[1], w: w, h: h });
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, ow, oh);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
+        resolve({ b64: c.toDataURL("image/jpeg", 0.85).split(",")[1], w: wDxa, h: hDxa });
       };
       img.onerror = function(){ resolve(null); };
       img.src = dataUrl;
@@ -222,10 +238,10 @@
     setLabelValue(doc, "JOGO", f.jogo_equipas);
     setLabelValue(doc, "RESULTADO", f.resultado);
     setLabelValue(doc, "JORNADA / COMPETIÇÃO", f.jornada);
-    var dh = [fmtData(f.data_jogo), f.hora_jogo].filter(Boolean).join(" · ");
+    var dh = [fmtData(f.data_jogo), f.hora_jogo ? f.hora_jogo + "H" : ""].filter(Boolean).join(" - ");
     setLabelValue(doc, "DATA E HORA", dh);
     setLabelValue(doc, "ESCALÃO", f.escalao);
-    setLabelValue(doc, "TERRENO", chips.terreno);
+    if(/^(Natural|Sintético|Híbrido)$/.test(chips.terreno || "")) setLabelValue(doc, "TERRENO", chips.terreno);
     setLabelValue(doc, "GR TITULAR", f.gr_titular);
     setLabelValue(doc, "GR SUPLENTE", f.gr_suplente);
     setLabelValue(doc, "LOCAL DO JOGO", f.local_jogo);
@@ -293,32 +309,19 @@
     // Fotografias
     var rels = await zip.file("word/_rels/document.xml.rels").async("string");
     var novasRels = "";
-    var fa = await prepararFoto((f.fotos || {}).atleta, 1100);
-    var fe = await prepararFoto((f.fotos || {}).estadio, 1100);
-    var tcAtleta = null;
+    var AT_W = 2850, AT_H = 2930, ES_W = 2070, ES_H = 1215;   // interior das caixas do modelo (dxa)
+    var fa = await prepararFoto((f.fotos || {}).atleta, AT_W, AT_H);
+    var fe = await prepararFoto((f.fotos || {}).estadio, ES_W, ES_H);
     if(fa){
       zip.file("word/media/foto_atleta.jpg", fa.b64, {base64: true, createFolders: false});
       novasRels += '<Relationship Id="rIdFotoAtleta" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/foto_atleta.jpg"/>';
-      tcAtleta = colocarFoto(doc, "FOTOGRAFIA DA ATLETA", fa, "rIdFotoAtleta", "foto_atleta", 2780, f.gr_nome ? 2480 : 2820);
+      colocarFoto(doc, "FOTOGRAFIA DA ATLETA", fa, "rIdFotoAtleta", "foto_atleta", AT_W, AT_H);
     }
     if(fe){
       zip.file("word/media/foto_estadio.jpg", fe.b64, {base64: true, createFolders: false});
       novasRels += '<Relationship Id="rIdFotoEstadio" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/foto_estadio.jpg"/>';
-      colocarFoto(doc, "FOTOGRAFIA DO ESTÁDIO", fe, "rIdFotoEstadio", "foto_estadio", 2060, 1190);
+      colocarFoto(doc, "FOTOGRAFIA DO ESTÁDIO", fe, "rIdFotoEstadio", "foto_estadio", ES_W, ES_H);
     }
-    // Nome da atleta por baixo da fotografia (a caixa do modelo não tem campo para o nome)
-    if((f.gr_nome || "").trim()){
-      var tc = tcAtleta;
-      if(!tc){ var lp = findP(doc, "FOTOGRAFIA DA ATLETA"); tc = lp ? lp.parentNode : null; }
-      if(tc){
-        var np = parseFrag('<w:p><w:pPr><w:spacing w:before="60" w:after="0"/><w:jc w:val="center"/></w:pPr><w:r>' +
-          '<w:rPr><w:rFonts w:ascii="Georgia" w:eastAsia="Georgia" w:hAnsi="Georgia" w:cs="Georgia"/><w:b/><w:bCs/>' +
-          '<w:color w:val="1B3A5C"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve"></w:t></w:r></w:p>');
-        np.getElementsByTagNameNS(W, "t")[0].textContent = f.gr_nome.trim();
-        tc.appendChild(doc.importNode(np, true));
-      }
-    }
-
     var out = new XMLSerializer().serializeToString(doc);
     if(out.indexOf("<?xml") !== 0) out = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' + out;
     zip.file("word/document.xml", out, {createFolders: false});
