@@ -1,34 +1,34 @@
 [
  {
-  "nome": "Atleta 1",
+  "nome": "Lara Castro",
   "foto": "atleta-1.jpg"
  },
  {
-  "nome": "Atleta 2",
+  "nome": "Carolina Padilha",
   "foto": "atleta-2.jpg"
  },
  {
-  "nome": "Atleta 3",
+  "nome": "Margarida Ferreira",
   "foto": "atleta-3.jpg"
  },
  {
-  "nome": "Atleta 4",
+  "nome": "Maria Oliveira",
   "foto": "atleta-4.jpg"
  },
  {
-  "nome": "Atleta 5",
+  "nome": "Raquel Cunha",
   "foto": "atleta-5.jpg"
  },
  {
-  "nome": "Atleta 6",
+  "nome": "Maria Helena",
   "foto": "atleta-6.jpg"
  },
  {
-  "nome": "Atleta 7",
+  "nome": "Oriana Abreu",
   "foto": "atleta-7.jpg"
  },
  {
-  "nome": "Atleta 8",
+  "nome": "Beatriz Alves",
   "foto": "atleta-8.jpg"
  }
 ]
