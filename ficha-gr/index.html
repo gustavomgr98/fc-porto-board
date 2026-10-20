@@ -506,7 +506,7 @@
         <label class="campo"><span>Resultado</span>
           <input type="text" data-f="resultado" placeholder="Ex: 2 - 1"></label>
         <label class="campo"><span>Local do jogo</span>
-          <input type="text" data-f="local_jogo" placeholder="Estádio / recinto"></label>
+          <input type="text" data-f="local_jogo" placeholder="Estádio / recinto" list="listaEstadios"><datalist id="listaEstadios"></datalist></label>
       </div>
 
       <div id="estadiosBox" hidden style="margin-top:12px;">
@@ -1400,6 +1400,7 @@
       var box = document.getElementById("estadiosLista");
       if(!box || !ESTADIOS.length) return;
       document.getElementById("estadiosBox").hidden = false;
+      var dl = document.getElementById("listaEstadios"); ESTADIOS.forEach(function(a){ var o = document.createElement("option"); o.value = a.nome; dl.appendChild(o); });
       box.innerHTML = "";
       ESTADIOS.forEach(function(a){
         var b = document.createElement("button");
