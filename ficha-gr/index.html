@@ -412,6 +412,12 @@
 .sug-chip.top3{cursor:pointer;border:1px solid #c9b88f;background:#fff}
 .sug-chip.top3.sel{background:#1c3a6e;color:#fff;border-color:#1c3a6e;font-weight:700}
 .sug-chip.top3.sel b{background:#fff;color:#1c3a6e}
+.plantel-tit{display:block;font-size:12px;font-weight:700;color:var(--texto-suave);margin-bottom:6px}
+.plantel{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.plantel button{flex:0 0 auto;width:62px;border:2px solid #d8cfb8;border-radius:10px;background:#fff;padding:0;overflow:hidden;font:inherit;cursor:pointer}
+.plantel button.sel{border-color:#1c3a6e;box-shadow:0 0 0 2px #1c3a6e}
+.plantel img{display:block;width:100%;height:76px;object-fit:cover;object-position:50% 12%}
+.plantel span{display:block;font-size:10px;font-weight:700;padding:3px 2px;line-height:1.1;word-break:break-word}
 </style>
 </head>
 <body>
@@ -463,6 +469,10 @@
     <summary><span class="titulo-bloco">Guarda-Redes &amp; Jogo</span></summary>
     <div class="conteudo">
       <div class="grid c2">
+        <div style="grid-column:1/-1;" id="plantelBox" hidden>
+          <span class="plantel-tit">Plantel — toca na atleta para preencher nome e foto</span>
+          <div class="plantel" id="plantelLista"></div>
+        </div>
         <label class="campo" style="grid-column:1/-1;"><span>Guarda-redes observada</span>
           <input type="text" data-f="gr_nome" placeholder="Nome da atleta"></label>
 
@@ -1295,6 +1305,64 @@
       rm.style.display = "none";
     }
   }
+  // ----- Plantel (pasta atletas/ com fotos) -----
+  var PLANTEL = [];
+  function semAcentos(x){ return String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase(); }
+  function fotoPlantelDataUrl(a){
+    return fetch("atletas/" + a.foto).then(function(r){ if(!r.ok) throw 0; return r.blob(); }).then(function(b){
+      return new Promise(function(res){ var fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.readAsDataURL(b); });
+    });
+  }
+  function escolherAtleta(a, forcar){
+    if(!atual) return;
+    var temFoto = !!atual.fotos.atleta;
+    atual.gr_nome = a.nome;
+    if(!(atual.gr_titular||"").trim()) atual.gr_titular = a.nome;
+    var set = function(f){ var el = document.querySelector('[data-f="'+f+'"]'); if(el) el.value = atual[f] || ""; };
+    set("gr_nome"); set("gr_titular"); atualizarLabelHeader();
+    atual.atualizado_em = Date.now(); persistStore(false);
+    atualizarPlantelSel();
+    if(temFoto && !forcar) return;
+    fotoPlantelDataUrl(a).then(function(d){
+      if(!atual) return;
+      atual.fotos.atleta = d;
+      renderFoto(document.getElementById("fotoAtletaBox"), document.getElementById("fotoAtletaRm"), "atleta");
+      persistStore(true);
+    }).catch(function(){ toast("Foto da atleta não encontrada"); });
+  }
+  function atualizarPlantelSel(){
+    var box = document.getElementById("plantelLista");
+    if(!box) return;
+    var n = semAcentos(atual && atual.gr_nome);
+    box.querySelectorAll("button").forEach(function(b){ b.classList.toggle("sel", !!n && semAcentos(b.dataset.nome) === n); });
+  }
+  function montarPlantel(){
+    fetch("atletas/atletas.json", {cache:"no-cache"}).then(function(r){ return r.json(); }).then(function(l){
+      PLANTEL = l || [];
+      var box = document.getElementById("plantelLista");
+      if(!box || !PLANTEL.length) return;
+      document.getElementById("plantelBox").hidden = false;
+      box.innerHTML = "";
+      PLANTEL.forEach(function(a){
+        var b = document.createElement("button");
+        b.type = "button"; b.dataset.nome = a.nome;
+        var im = document.createElement("img"); im.src = "atletas/" + a.foto; im.alt = a.nome;
+        var sp = document.createElement("span"); sp.textContent = a.nome;
+        b.appendChild(im); b.appendChild(sp);
+        b.addEventListener("click", function(){ escolherAtleta(a, true); });
+        box.appendChild(b);
+      });
+      atualizarPlantelSel();
+      // escrever o nome de uma atleta do plantel também põe a foto (se ainda não houver)
+      var inp = document.querySelector('[data-f="gr_nome"]');
+      if(inp) inp.addEventListener("input", function(){
+        atualizarPlantelSel();
+        var a = PLANTEL.filter(function(x){ return semAcentos(x.nome) === semAcentos(inp.value); })[0];
+        if(a && atual && !atual.fotos.atleta) escolherAtleta(a, false);
+      });
+    }).catch(function(){});
+  }
+
   function refreshAllFotos(){
     renderFoto(document.getElementById("fotoAtletaBox"), document.getElementById("fotoAtletaRm"), "atleta");
     renderFoto(document.getElementById("fotoEstadioBox"), document.getElementById("fotoEstadioRm"), "estadio");
@@ -1307,7 +1375,7 @@
     refreshAllChips();
     refreshAllRatings();
     refreshNotaFinal();
-    refreshAllFotos();
+    refreshAllFotos(); if(typeof atualizarPlantelSel==="function") atualizarPlantelSel();
     resetRegistoRapido();
     atualizarPresetAquecimento();
   }
@@ -1600,6 +1668,7 @@
   bindFields();
   bindChips();
   bindNotaFinal();
+  montarPlantel();
   bindFoto("fotoAtletaBox","fotoAtletaInput","fotoAtletaRm","atleta");
   bindFoto("fotoEstadioBox","fotoEstadioInput","fotoEstadioRm","estadio");
   bindRegistoRapido();
