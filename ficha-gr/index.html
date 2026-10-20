@@ -418,6 +418,8 @@
 .plantel button.sel{border-color:#1c3a6e;box-shadow:0 0 0 2px #1c3a6e}
 .plantel img{display:block;width:100%;height:76px;object-fit:cover;object-position:50% 12%}
 .plantel span{display:block;font-size:10px;font-weight:700;padding:3px 2px;line-height:1.1;word-break:break-word}
+.plantel.estadios button{width:96px}
+.plantel.estadios img{height:56px;object-position:50% 50%}
 </style>
 </head>
 <body>
@@ -507,6 +509,10 @@
           <input type="text" data-f="local_jogo" placeholder="Estádio / recinto"></label>
       </div>
 
+      <div id="estadiosBox" hidden style="margin-top:12px;">
+        <span class="plantel-tit">Estádios — toca para preencher local e foto</span>
+        <div class="plantel estadios" id="estadiosLista"></div>
+      </div>
       <div class="duas-cols" style="margin-top:12px;">
         <div class="foto-box" id="fotoAtletaBox">
           <span class="txt">📷 Foto da atleta<br><span style="font-weight:400;">(toca para adicionar)</span></span>
@@ -1363,6 +1369,57 @@
     }).catch(function(){});
   }
 
+  // ----- Estádios (pasta estadios/) -----
+  var ESTADIOS = [];
+  function escolherEstadio(a, forcar){
+    if(!atual) return;
+    var temFoto = !!atual.fotos.estadio;
+    atual.local_jogo = a.nome;
+    var el = document.querySelector('[data-f="local_jogo"]'); if(el) el.value = a.nome;
+    atual.atualizado_em = Date.now(); persistStore(false);
+    atualizarEstadiosSel();
+    if(temFoto && !forcar) return;
+    fetch("estadios/" + a.foto).then(function(r){ if(!r.ok) throw 0; return r.blob(); }).then(function(b){
+      return new Promise(function(res){ var fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.readAsDataURL(b); });
+    }).then(function(d){
+      if(!atual) return;
+      atual.fotos.estadio = d;
+      renderFoto(document.getElementById("fotoEstadioBox"), document.getElementById("fotoEstadioRm"), "estadio");
+      persistStore(true);
+    }).catch(function(){ toast("Foto do estádio não encontrada"); });
+  }
+  function atualizarEstadiosSel(){
+    var box = document.getElementById("estadiosLista");
+    if(!box) return;
+    var n = semAcentos(atual && atual.local_jogo);
+    box.querySelectorAll("button").forEach(function(b){ b.classList.toggle("sel", !!n && semAcentos(b.dataset.nome) === n); });
+  }
+  function montarEstadios(){
+    fetch("estadios/estadios.json", {cache:"no-cache"}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(l){
+      ESTADIOS = l || [];
+      var box = document.getElementById("estadiosLista");
+      if(!box || !ESTADIOS.length) return;
+      document.getElementById("estadiosBox").hidden = false;
+      box.innerHTML = "";
+      ESTADIOS.forEach(function(a){
+        var b = document.createElement("button");
+        b.type = "button"; b.dataset.nome = a.nome;
+        var im = document.createElement("img"); im.src = "estadios/" + a.foto; im.alt = a.nome;
+        var sp = document.createElement("span"); sp.textContent = a.nome;
+        b.appendChild(im); b.appendChild(sp);
+        b.addEventListener("click", function(){ escolherEstadio(a, true); });
+        box.appendChild(b);
+      });
+      atualizarEstadiosSel();
+      var inp = document.querySelector('[data-f="local_jogo"]');
+      if(inp) inp.addEventListener("input", function(){
+        atualizarEstadiosSel();
+        var a = ESTADIOS.filter(function(x){ return semAcentos(x.nome) === semAcentos(inp.value); })[0];
+        if(a && atual && !atual.fotos.estadio) escolherEstadio(a, false);
+      });
+    }).catch(function(){});
+  }
+
   function refreshAllFotos(){
     renderFoto(document.getElementById("fotoAtletaBox"), document.getElementById("fotoAtletaRm"), "atleta");
     renderFoto(document.getElementById("fotoEstadioBox"), document.getElementById("fotoEstadioRm"), "estadio");
@@ -1375,7 +1432,7 @@
     refreshAllChips();
     refreshAllRatings();
     refreshNotaFinal();
-    refreshAllFotos(); if(typeof atualizarPlantelSel==="function") atualizarPlantelSel();
+    refreshAllFotos(); if(typeof atualizarPlantelSel==="function") atualizarPlantelSel(); if(typeof atualizarEstadiosSel==="function") atualizarEstadiosSel();
     resetRegistoRapido();
     atualizarPresetAquecimento();
   }
@@ -1669,6 +1726,7 @@
   bindChips();
   bindNotaFinal();
   montarPlantel();
+  montarEstadios();
   bindFoto("fotoAtletaBox","fotoAtletaInput","fotoAtletaRm","atleta");
   bindFoto("fotoEstadioBox","fotoEstadioInput","fotoEstadioRm","estadio");
   bindRegistoRapido();
